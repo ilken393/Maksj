@@ -1,0 +1,15 @@
+{
+  "name": "altra-bot",
+  "version": "1.0.0",
+  "description": "Altra WhatsApp Assistant",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "vialeys": "latest",
+    "pino": "^8.14.1",
+    "qrcode-terminal": "^0.12.0",
+    "dotenv": "^16.3.1"
+  }
+}
