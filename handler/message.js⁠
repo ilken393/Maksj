@@ -1,0 +1,184 @@
+const config = require('../config');
+const { toHelloSans } = require('../utils/font');
+
+// Database Sederhana (Bisa kamu pindah ke JSON/MongoDB nanti)
+let users = {}; 
+let confessSessions = {}; 
+let groupSettings = {};
+
+async function handler(sock, msg) {
+    const sender = msg.key.remoteJid;
+    const isGroup = sender.endsWith('@g.us');
+    const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || "";
+    const pushName = msg.pushName || "Kak";
+
+    const reply = async (textMsg) => {
+        const formattedText = toHelloSans(textMsg);
+        await sock.sendMessage(sender, { text: formattedText }, { quoted: config.fakeStatus });
+    };
+
+    // ==========================================
+    // 1. FITUR GRUP (GUARD, ANTI-LINK, TOXIC, DLL)
+    // ==========================================
+    if (isGroup) {
+        // Cek admin status (asumsi fungsi isAdmin sudah ada)
+        const isBotAdmin = true; // Set logic cek admin di sini
+
+        if (isBotAdmin) {
+            // Anti Link
+            if (text.match(/(https?:\/\/[^\s]+)/gi)) {
+                await sock.sendMessage(sender, { delete: msg.key });
+                await reply(`⚠️ ADS - DETECT‼️ You Has Deleted Message. 💗🌷\n\nKetahuan ngirim link anjir, dihapus ya sama sistem.`);
+                return;
+            }
+
+            // Anti Toxic / Autopsi 5 Chat Terakhir
+            const toxicWords = ['anjing', 'bangsat', 'babi']; // Tambah listnya
+            if (toxicWords.some(word => text.toLowerCase().includes(word))) {
+                await sock.sendMessage(sender, { delete: msg.key });
+                await reply(`Peringatan kepada @${msg.participant.split('@')[0]} agar tidak mengirim perkataan chat seperti itu "${text}" karena ini melanggar pedoman penggunaan asisten. Silakan gunakan bahasa lain untuk menghindari sistem lock ya kak. ⚠️ 1/5 💗🌷`);
+                return;
+            }
+
+            // Anti View Once (1x Lihat)
+            if (msg.message?.viewOnceMessageV2) {
+                const mediaMessage = msg.message.viewOnceMessageV2.message;
+                await sock.sendMessage(sender, { forward: msg, contextInfo: { forwardingScore: 999, isForwarded: true } });
+                await reply(`Anjir ada yang ngirim foto 1x lihat nih, aku forward ulang ya biar semua bisa liat. Gak apa-apa kan? 💗🌷`);
+                return;
+            }
+
+            // Anti Promosi / Jualan
+            const adsWords = ['pricelist', 'promo', 'diskon', 'jual', 'open bo'];
+            if (adsWords.some(word => text.toLowerCase().includes(word))) {
+                await sock.sendMessage(sender, { delete: msg.key });
+                await reply(`⚠️ ADS - DETECT‼️ You Has Deleted Message. 💗🌷\n\nHmm, kayaknya sih ini pesan promosi deh. Maaf ya dihapus otomatis sama Altra.`);
+                return;
+            }
+        }
+
+        // Kalau ada yang panggil command confess di grup
+        if (text.startsWith('.list') || text.startsWith('confess')) {
+            await reply(`Halo kak ${pushName}, maaf ya sebelumnya. Soalnya fitur ini strictly cuma bisa digunakan di chat pribadi aku dan kamu aja oke? 💗🌷\n\nUntuk menu grup lain masih dalam tahap pengembangan sih, tapi kamu bisa coba yang lain aja dulu. Kalau emang suka sama fitur aku yang ini atau tertarik, silakan chat aku di pribadi nanti aku respon kok. Ya udah gitu aja ya!`);
+        }
+        return; 
+    }
+
+    // ==========================================
+    // 2. FITUR PRIVATE (CAPTCHA & WELCOME)
+    // ==========================================
+    if (!users[sender]) {
+        users[sender] = { verified: false, step: 'choose_captcha' };
+        
+        await reply(`Halo Selamat (siang/malam/sore) aku Altra. Senang bertemu denganmu ^v^ ada agenda apa hari ini? 💗🌷\n\nEh tunggu dulu anjir, buat ngehindarin spam, kamu harus verifikasi dulu ya. Mau via apa nih?\n1. Matematika\n2. Teks Acak\n\nBalas angka 1 atau 2 ya!`);
+        return;
+    }
+
+    if (!users[sender].verified) {
+        let user = users[sender];
+        if (user.step === 'choose_captcha') {
+            if (text === '1') {
+                user.step = 'math';
+                user.answer = '21';
+                await reply(`Oke via Matematika ya!\nSilahkan Jumlahkan = 10 + 11 = ? 💗🌷`);
+            } else if (text === '2') {
+                user.step = 'text';
+                user.answer = 'MANDI';
+                await reply(`Oke via Teks Acak ya!\nSilahkan Susun Txt Ini : AMNID = ? 💗🌷`);
+            } else {
+                await reply(`Hmm, kayaknya ada yang salah deh anjir... Pilih angka 1 atau 2 aja ya kak. 💗🌷`);
+            }
+            return;
+        }
+
+        if (user.step === 'math' || user.step === 'text') {
+            if (text.toUpperCase() === user.answer) {
+                user.verified = true;
+                await reply(`Verifikasi Berhasil ✅\n\nOh iya kamu jika ingin lebih dekat denganku kamu bisa klik salah satu di bawah ini, ada dua kamu tinggal pilih keduanya atau satunya:\n\n*Ketik:*\n> OWNER\n> MENU 💗🌷`);
+            } else {
+                await reply(`Hmm, kayaknya sih ada yang salah deh jawabannya. Coba cek lagi pelan-pelan, gak apa-apa kok. 💗🌷`);
+            }
+            return;
+        }
+    }
+
+    // ==========================================
+    // 3. FITUR CONFESS & PAYMENT
+    // ==========================================
+    if (text === '.list') {
+        // Menggunakan Buttons Vialeys Interactive
+        const btnMsg = {
+            text: toHelloSans("Mau confess ke siapa nih hari ini? 💗🌷"),
+            footer: config.watermark,
+            buttons: [
+                { buttonId: 'confess_mantan', buttonText: { displayText: '1. Confess ke Mantan' }, type: 1 },
+                { buttonId: 'confess_pacar', buttonText: { displayText: '2. Confess ke Pacar' }, type: 1 }
+            ],
+            headerType: 1
+        };
+        await sock.sendMessage(sender, btnMsg, { quoted: config.fakeStatus });
+        return;
+    }
+
+    // Simulasi respons klik button confess
+    if (text === '1. Confess ke Mantan' || text === '2. Confess ke Pacar') {
+        users[sender].confessStep = 'ask_number';
+        await reply(`Oke siap! Kirimkan nomor WhatsApp aktif target kamu ya (contoh: 628xxx). 💗🌷`);
+        return;
+    }
+
+    if (users[sender].confessStep === 'ask_number') {
+        let targetNum = text.replace(/[^0-9]/g, '');
+        // Loading edit message simulation
+        let msgId = (await sock.sendMessage(sender, { text: toHelloSans("Berpikir...") })).key;
+        setTimeout(async () => {
+            await sock.sendMessage(sender, { text: toHelloSans("Selesai ✅ Nomor disimpan.") , edit: msgId });
+            
+            // Lanjut ke QRIS
+            users[sender].confessStep = 'payment';
+            users[sender].targetNum = targetNum + "@s.whatsapp.net";
+            
+            await sock.sendMessage(sender, { 
+                image: { url: 'https://placehold.co/400x400.png?text=QRIS+ALTRA' }, 
+                caption: toHelloSans("Silakan scan QRIS di atas untuk sesi chat 1K (2 menit) ya kak. Kalau udah, ketik *KONFIRMASI* 💗🌷") 
+            });
+        }, 3000);
+        return;
+    }
+
+    if (text === 'KONFIRMASI' && users[sender].confessStep === 'payment') {
+        await reply(`Tunggu bentar ya anjir, aku tanyain Ilham (owner) dulu buat acc pembayarannya... 💗🌷`);
+        
+        // Notif ke Owner
+        await sock.sendMessage(config.ownerNumber, {
+            text: toHelloSans(`BOS! Ada yang beli confess nih.\nType: Confess/1K/1Hari/Rp2.000\nNomor: ${sender.split('@')[0]}\n\nACC gak nih? Balas YES atau NO.`)
+        });
+        users[sender].confessStep = 'waiting_owner';
+        return;
+    }
+
+    // ==========================================
+    // 4. MENU & OWNER BUTTONS
+    // ==========================================
+    if (text.toLowerCase() === 'owner') {
+        await sock.sendMessage(sender, {
+            image: { url: 'https://placehold.co/400x400.png?text=Ilham+Owner' },
+            caption: toHelloSans(`Kenalin, ini boss aku!\n\nNama: Ilham\nSejak: 23 Juli 2026\n\nKlik link di bawah buat salin infonya ya 💗🌷`),
+            templateButtons: [
+                { urlButton: { displayText: '📄 Salin Nomor', url: `https://wa.me/6285182359268` } },
+                { urlButton: { displayText: '📄 Salin Instagram', url: `https://instagram.com/` } }
+            ]
+        }, { quoted: config.fakeStatus });
+        return;
+    }
+
+    if (text.toLowerCase() === 'altra about?') {
+        await reply(`Jadi gini... aku ini diciptakan oleh AI di dalam AI yang dikendalikan oleh Ilham, aktif sejak 23 Juli 2026. 💗🌷`);
+        setTimeout(async () => {
+            await reply(`Oh iya, kamu ingin mengenalku lebih dalam atau gimana nih? Cerita aja, aku dengerin kok...`);
+        }, 2500);
+        return;
+    }
+}
+
+module.exports = { handler };
